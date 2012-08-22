@@ -49,6 +49,7 @@ POSSIBLE_CA_BUNDLE_PATHS = [
         '/etc/ssl/ca-bundle.pem',
 ]
 
+
 def get_os_ca_bundle_path():
     """Try to pick an available CA certificate bundle provided by the OS."""
     for path in POSSIBLE_CA_BUNDLE_PATHS:
@@ -59,6 +60,7 @@ def get_os_ca_bundle_path():
 # if certifi is installed, use its CA bundle;
 # otherwise, try and use the OS bundle
 DEFAULT_CA_BUNDLE_PATH = CERTIFI_BUNDLE_PATH or get_os_ca_bundle_path()
+
 
 def dict_to_sequence(d):
     """Returns an internal sequence dictionary update."""
@@ -110,6 +112,33 @@ def guess_filename(obj):
     name = getattr(obj, 'name', None)
     if name and name[0] != '<' and name[-1] != '>':
         return name
+
+
+def to_key_val_list(value):
+    """Take an object and test to see if it can be represented as a
+    dictionary. Unless it can not be represented as such, return a list of
+    tuples, e.g.,:
+
+    >>> to_key_val_list([('key', 'val')])
+    [('key', 'val')]
+    >>> to_key_val_list('string')
+    ValueError: ...
+    >>> to_key_val_list({'key': 'val'})
+    [('key', 'val')]
+    """
+    if value is None:
+        return None
+
+    try:
+        dict(value)
+    except ValueError:
+        raise ValueError('Unable to encode lists with elements that are not '
+                '2-tuples.')
+
+    if isinstance(value, dict) or hasattr(value, 'items'):
+        value = value.items()
+
+    return list(value)
 
 
 # From mitsuhiko/werkzeug (used with permission).
@@ -445,6 +474,7 @@ def requote_uri(uri):
     # or '%')
     return quote(unquote_unreserved(uri), safe="!#$%&'()*+,/:;=?@[]~")
 
+
 def get_environ_proxies():
     """Return a dict of environment proxies."""
 
@@ -488,3 +518,36 @@ def default_user_agent():
             '%s/%s' % (_implementation, _implementation_version),
             '%s/%s' % (platform.system(), platform.release()),
         ])
+
+def parse_header_links(value):
+    """Return a dict of parsed link headers proxies.
+
+    i.e. Link: <http:/.../front.jpeg>; rel=front; type="image/jpeg",<http://.../back.jpeg>; rel=back;type="image/jpeg"
+
+    """
+    
+    links = []
+
+    replace_chars = " '\""
+
+    for val in value.split(","):
+        try:
+            url, params = val.split(";", 1)
+        except ValueError:
+            url, params = val, ''
+
+        link = {}
+
+        link["url"] = url.strip("<> '\"")
+
+        for param in params.split(";"):
+            try:
+                key,value = param.split("=")
+            except ValueError:
+                break
+            
+            link[key.strip(replace_chars)] = value.strip(replace_chars)
+
+        links.append(link)
+
+    return links

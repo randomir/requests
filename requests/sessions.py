@@ -15,8 +15,9 @@ from .cookies import cookiejar_from_dict, remove_cookie_by_name
 from .defaults import defaults
 from .models import Request
 from .hooks import dispatch_hook
-from .utils import header_expand
+from .utils import header_expand, to_key_val_list
 from .packages.urllib3.poolmanager import PoolManager
+
 
 def merge_kwargs(local_kwarg, default_kwarg):
     """Merges kwarg dictionaries.
@@ -37,12 +38,14 @@ def merge_kwargs(local_kwarg, default_kwarg):
     if not hasattr(default_kwarg, 'items'):
         return local_kwarg
 
+    local_kwarg = to_key_val_list(local_kwarg)
+
     # Update new values.
     kwargs = default_kwarg.copy()
     kwargs.update(local_kwarg)
 
     # Remove keys that are set to None.
-    for (k, v) in list(local_kwarg.items()):
+    for (k, v) in local_kwarg:
         if v is None:
             del kwargs[k]
 
@@ -55,7 +58,6 @@ class Session(object):
     __attrs__ = [
         'headers', 'cookies', 'auth', 'timeout', 'proxies', 'hooks',
         'params', 'config', 'verify', 'cert', 'prefetch']
-
 
     def __init__(self,
         headers=None,
@@ -70,12 +72,13 @@ class Session(object):
         verify=True,
         cert=None):
 
+        #self.headers = to_key_val_list(headers or [])
         self.headers = headers or {}
         self.auth = auth
         self.timeout = timeout
-        self.proxies = proxies or {}
+        self.proxies = to_key_val_list(proxies or [])
         self.hooks = hooks or {}
-        self.params = params or {}
+        self.params = to_key_val_list(params or [])
         self.config = config or {}
         self.prefetch = prefetch
         self.verify = verify
@@ -156,10 +159,10 @@ class Session(object):
         method = str(method).upper()
 
         # Default empty dicts for dict params.
-        data = {} if data is None else data
-        files = {} if files is None else files
+        data = [] if data is None else data
+        files = [] if files is None else files
         headers = {} if headers is None else headers
-        params = {} if params is None else params
+        params = [] if params is None else params
         hooks = {} if hooks is None else hooks
         prefetch = prefetch if prefetch is not None else self.prefetch
 
@@ -169,6 +172,8 @@ class Session(object):
 
         # Expand header values.
         if headers:
+            #e = [(k, header_expand(v)) for k, v in to_key_val_list(headers)]
+            #headers = e
             for k, v in list(headers.items()) or {}:
                 headers[k] = header_expand(v)
 
@@ -184,7 +189,7 @@ class Session(object):
             hooks=hooks,
             timeout=timeout,
             allow_redirects=allow_redirects,
-            proxies=proxies,
+            proxies=to_key_val_list(proxies),
             config=config,
             prefetch=prefetch,
             verify=verify,
@@ -240,7 +245,6 @@ class Session(object):
         # Return the response.
         return r.response
 
-
     def get(self, url, **kwargs):
         """Sends a GET request. Returns :class:`Response` object.
 
@@ -250,7 +254,6 @@ class Session(object):
 
         kwargs.setdefault('allow_redirects', True)
         return self.request('get', url, **kwargs)
-
 
     def options(self, url, **kwargs):
         """Sends a OPTIONS request. Returns :class:`Response` object.
@@ -262,7 +265,6 @@ class Session(object):
         kwargs.setdefault('allow_redirects', True)
         return self.request('options', url, **kwargs)
 
-
     def head(self, url, **kwargs):
         """Sends a HEAD request. Returns :class:`Response` object.
 
@@ -272,7 +274,6 @@ class Session(object):
 
         kwargs.setdefault('allow_redirects', False)
         return self.request('head', url, **kwargs)
-
 
     def post(self, url, data=None, **kwargs):
         """Sends a POST request. Returns :class:`Response` object.
@@ -284,7 +285,6 @@ class Session(object):
 
         return self.request('post', url, data=data, **kwargs)
 
-
     def put(self, url, data=None, **kwargs):
         """Sends a PUT request. Returns :class:`Response` object.
 
@@ -295,7 +295,6 @@ class Session(object):
 
         return self.request('put', url, data=data, **kwargs)
 
-
     def patch(self, url, data=None, **kwargs):
         """Sends a PATCH request. Returns :class:`Response` object.
 
@@ -305,7 +304,6 @@ class Session(object):
         """
 
         return self.request('patch', url,  data=data, **kwargs)
-
 
     def delete(self, url, **kwargs):
         """Sends a DELETE request. Returns :class:`Response` object.

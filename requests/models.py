@@ -31,7 +31,7 @@ from .exceptions import (
 from .utils import (
     get_encoding_from_headers, stream_untransfer, guess_filename, requote_uri,
     stream_decode_response_unicode, get_netrc_auth, get_environ_proxies,
-    DEFAULT_CA_BUNDLE_PATH)
+    to_key_val_list, DEFAULT_CA_BUNDLE_PATH, parse_header_links)
 from .compat import (
     cookielib, urlparse, urlunparse, urljoin, urlsplit, urlencode, str, bytes,
     StringIO, is_py2, chardet, json, builtin_str, numeric_types)
@@ -39,9 +39,10 @@ from .compat import (
 REDIRECT_STATI = (codes.moved, codes.found, codes.other, codes.temporary_moved)
 CONTENT_CHUNK_SIZE = 10 * 1024
 
+
 class Request(object):
-    """The :class:`Request <Request>` object. It carries out all functionality of
-    Requests. Recommended interface is with the Requests functions.
+    """The :class:`Request <Request>` object. It carries out all functionality
+    of Requests. Recommended interface is with the Requests functions.
     """
 
     def __init__(self,
@@ -321,21 +322,13 @@ class Request(object):
         if parameters are supplied as a dict.
         """
 
-        if isinstance(data, bytes):
-            return data
-        if isinstance(data, str):
+        if isinstance(data, (str, bytes)):
             return data
         elif hasattr(data, 'read'):
             return data
         elif hasattr(data, '__iter__'):
-            try:
-                dict(data)
-            except ValueError:
-                raise ValueError('Unable to encode lists with elements that are not 2-tuples.')
-
-            params = list(data.items() if isinstance(data, dict) else data)
             result = []
-            for k, vs in params:
+            for k, vs in to_key_val_list(data):
                 for v in isinstance(vs, list) and vs or [vs]:
                     result.append(
                         (k.encode('utf-8') if isinstance(k, str) else k,
@@ -355,23 +348,18 @@ class Request(object):
         if (not files) or isinstance(self.data, str):
             return None
 
-        def tuples(obj):
-            """Ensure 2-tuples. A dict or a 2-tuples list can be supplied."""
-            if isinstance(obj, dict):
-                return list(obj.items())
-            elif hasattr(obj, '__iter__'):
-                try:
-                    dict(obj)
-                except ValueError:
-                    pass
-                else:
-                    return obj
-            raise ValueError('A dict or a list of 2-tuples required.')
+        new_fields = []
+        fields = to_key_val_list(self.data)
+        files = to_key_val_list(files)
 
-        # 2-tuples containing both file and data fields.
-        fields = []
+        for field, val in fields:
+            if isinstance(val, list):
+                for v in val:
+                    new_fields.append((field, str(v)))
+            else:
+                new_fields.append((field, str(val)))
 
-        for k, v in tuples(files):
+        for (k, v) in files:
             # support for explicit filename
             if isinstance(v, (tuple, list)):
                 fn, fp = v
@@ -382,16 +370,9 @@ class Request(object):
                 fp = StringIO(fp)
             if isinstance(fp, bytes):
                 fp = BytesIO(fp)
-            fields.append((k, (fn, fp.read())))
+            new_fields.append((k, (fn, fp.read())))
 
-        for k, vs in tuples(self.data):
-            if isinstance(vs, list):
-                for v in vs:
-                    fields.append((k, str(v)))
-            else:
-                fields.append((k, str(vs)))
-
-        body, content_type = encode_multipart_formdata(fields)
+        body, content_type = encode_multipart_formdata(new_fields)
 
         return body, content_type
 
@@ -553,10 +534,10 @@ class Request(object):
             self.__dict__.update(r.__dict__)
 
         _p = urlparse(url)
-        no_proxy = filter(lambda x:x.strip(), self.proxies.get('no', '').split(','))
+        no_proxy = filter(lambda x: x.strip(), self.proxies.get('no', '').split(','))
         proxy = self.proxies.get(_p.scheme)
 
-        if proxy and not any(map(_p.netloc.endswith, no_proxy)):
+        if proxy and not any(map(_p.hostname.endswith, no_proxy)):
             conn = poolmanager.proxy_from_url(proxy)
             _proxy = urlparse(proxy)
             if '@' in _proxy.netloc:
@@ -852,11 +833,29 @@ class Response(object):
 
     @property
     def json(self):
-        """Returns the json-encoded content of a request, if any."""
+        """Returns the json-encoded content of a response, if any."""
         try:
             return json.loads(self.text or self.content)
         except ValueError:
             return None
+
+    @property
+    def links(self):
+        """Returns the parsed header links of the response, if any."""
+
+        header = self.headers['link']
+
+        # l = MultiDict()
+        l = {}
+
+        if header:
+            links = parse_header_links(header)
+
+            for link in links:
+                key = link.get('rel') or link.get('url')
+                l[key] = link
+
+        return l
 
     @property
     def reason(self):
